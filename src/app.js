@@ -5,18 +5,231 @@ const cors = require('cors');
 //const { poolPromise } = require('./config/db');
 const { memo } = require('react');
 const user = require('./router/user');
-
+const patient=require('./router/regpatient');
+const appointment = require('./router/appointment');
+//const sql = require('mssql');
 
 app.use(cors());
 app.use(express.json())
 
 app.use('/api/user', user);
+app.use('/api/patient', patient);
+app.use('/api/appointment', appointment);
 
 //API
 // poolPromise()
 
 const { poolPromise, sql } = require('./config/db');
 
+app.get('/getMedhistory/:patientId', async (req, res) => {
+    const { patientId } = req.params;
+
+    if (!patientId) {
+        return res.status(400).json({ message: 'Patient ID is required.' });
+    }
+
+    try {
+        const pool = await poolPromise();
+
+        // Query 1: Get patient's general medical history
+        const historyResult = await pool.request()
+            .input('patientId', sql.NVarChar(), patientId)
+            .query(`
+                SELECT ChiefComplaint, SummaryNote, PreExisting, Allergy
+                FROM Register_Patient
+                WHERE PatientId = @patientId;
+            `);
+
+        // Query 2: Get all prescriptions for the patient
+        const prescriptionsResult = await pool.request()
+            .input('patientId', sql.NVarChar(), patientId)
+            .query(`
+                SELECT MedicineName AS name, Dosage AS dosage, Duration AS duration, Frequency AS frequency, Notes AS notes
+                FROM Prescription
+                WHERE PatientId = @patientId
+                ORDER BY CreateDate DESC;
+            `);
+
+        if (historyResult.recordset.length > 0) {
+            const history = historyResult.recordset[0];
+            const prescriptions = prescriptionsResult.recordset;
+
+            // Parse the JSON string for pre-existing conditions
+            try {
+                history.PreExisting = history.PreExisting ? JSON.parse(history.PreExisting) : [];
+            } catch (jsonErr) {
+                console.warn(`Could not parse PreExisting for patient ${patientId}:`, jsonErr);
+                history.PreExisting = []; // Default to an empty array on error
+            }
+            
+            // Combine all data into a single object
+            const responseData = {
+                ...history,
+                prescriptions: prescriptions
+            };
+
+            res.status(200).json(responseData);
+        } else {
+            res.status(404).json({ message: 'No medical history found for this patient.' });
+        }
+    } catch (err) {
+        console.error("Database query error:", err);
+        res.status(500).json({ message: 'Failed to retrieve medical history and prescriptions.', error: err.message });
+    }
+});
+
+app.post('/saveConsultation', async (req, res) => {
+    const {
+        patientId,
+        appointmentId,
+        chiefComplaint,
+        summaryNote,
+        preExistingProblems,
+        allergy,
+        prescriptions
+    } = req.body;
+   console.log("req.body", req.body);
+   
+    if (!patientId || !appointmentId) {
+        return res.status(400).json({ message: 'Patient ID and Appointment ID are required.' });
+    }
+
+    let pool;
+    let transaction;
+
+    try {
+        pool = await poolPromise();
+        transaction = new sql.Transaction(pool);
+        await transaction.begin();
+
+        // 1. Update the Patient's table with consultation notes
+        const patientUpdateQuery = `
+            UPDATE Register_Patient
+            SET ChiefComplaint = @chiefComplaint,
+                SummaryNote = @summaryNote,
+                PreExisting = @preExistingProblems,
+                Allergy = @allergy
+            WHERE patientId= @patientId;
+        `;
+
+        await new sql.Request(transaction)
+            .input('chiefComplaint', sql.NVarChar(sql.MAX), chiefComplaint || null)
+            .input('summaryNote', sql.NVarChar(sql.MAX), summaryNote || null)
+            .input('preExistingProblems', sql.NVarChar(sql.MAX), JSON.stringify(preExistingProblems))
+            .input('allergy', sql.NVarChar(sql.MAX), allergy || null)
+            .input('patientId', sql.NVarChar(), patientId)
+            .query(patientUpdateQuery);
+
+        console.log(`Updated Patient ID: ${patientId}`);
+     
+               // --- NEW: Delete existing prescriptions for this appointment ---
+        const prescriptionDeleteQuery = `
+            DELETE FROM Prescription
+            WHERE AppointmentId = @appointmentId;
+        `;
+        await new sql.Request(transaction)
+            .input('appointmentId', sql.Int, appointmentId)
+            .query(prescriptionDeleteQuery);
+
+        console.log(`Deleted existing prescriptions for Appointment ID: ${appointmentId}`);
+        
+        // 2. Insert into the Prescription table for each prescription
+        if (prescriptions && prescriptions.length > 0) {
+            const prescriptionInsertQuery = `
+                INSERT INTO Prescription (AppointmentId, PatientId, MedicineName, Dosage, Duration, Frequency, Notes)
+                VALUES (@appointmentId, @patientId, @medicineName, @dosage, @duration, @frequency, @notes);
+            `;
+
+            for (const prescription of prescriptions) {
+                await new sql.Request(transaction)
+                    .input('appointmentId', sql.Int, appointmentId)
+                    .input('patientId', sql.NVarChar(15), patientId)
+                    .input('medicineName', sql.NVarChar(255), prescription.name)
+                    .input('dosage', sql.NVarChar(100), prescription.dosage)
+                    .input('duration', sql.NVarChar(100), prescription.duration)
+                    .input('frequency', sql.NVarChar(100), prescription.frequency)
+                    .input('notes', sql.NVarChar(sql.MAX), prescription.notes)
+                    .query(prescriptionInsertQuery);
+            }
+            console.log(`Inserted ${prescriptions.length} new prescriptions.`);
+        }
+
+        await transaction.commit();
+        res.status(200).json({ message: 'Consultation data and prescriptions saved successfully!' });
+
+    } catch (err) {
+        if (transaction) {
+            try {
+                await transaction.rollback();
+                console.log("Transaction rolled back.");
+            } catch (rollbackErr) {
+                console.error("Rollback failed:", rollbackErr);
+            }
+        }
+        console.error("Error during save operation:", err);
+        res.status(500).json({ message: 'Failed to save data.', error: err.message });
+    }
+});
+app.put('/api/editAppointment/:id', async (req, res) => {
+    const { id } = req.params;
+    const {
+        doctor,
+        date,
+        time,
+        bloodPressure,
+        pulse,
+        respiratoryRate,
+        stressLevel
+    } = req.body;
+
+    console.log("req.body", req.body);
+  const pulseAsString = pulse ? String(pulse) : null;
+    const respiratoryRateAsString = respiratoryRate ? String(respiratoryRate) : null;
+    try {
+        const pool = await poolPromise();
+        const request = pool.request();
+
+        const query = `
+           UPDATE Appointment
+           SET doctor = @doctor,
+               date = @date,
+               time = @time,
+               bloodPressure = @bloodPressure,
+               pulse = @pulse,
+               respiratoryRate = @respiratoryRate,
+               stressLevel = @stressLevel,
+               updateDate = GETDATE()
+           WHERE id = @id;
+        `;
+
+        // The key fix is here:
+        // Explicitly check if the value is a string before passing it.
+        // If not, convert it or set it to null.
+        request.input('id', sql.Int, id); // Assuming ID is an integer
+        request.input('doctor', sql.NVarChar, doctor || null);
+        request.input('date', sql.DateTime, date || null);
+        request.input('time', sql.NVarChar, time || null);
+
+        // Robust handling for potentially problematic values
+        request.input('bloodPressure', sql.NVarChar, typeof bloodPressure === 'string' ? bloodPressure : null);
+    request.input('pulse', sql.NVarChar, pulseAsString);
+        request.input('respiratoryRate', sql.NVarChar, respiratoryRateAsString);
+        request.input('stressLevel', sql.NVarChar, typeof stressLevel === 'string' ? stressLevel : null);
+
+        const result = await request.query(query);
+        console.log("result", result);
+
+        if (result.rowsAffected[0] > 0) {
+            res.status(200).json({ message: "Appointment updated successfully" });
+        } else {
+            res.status(404).json({ message: "Appointment not found or no changes were made." });
+        }
+    }
+    catch (err) {
+        console.error("/api/editAppointment/id", err);
+        res.status(500).json({ message: "Internal server error", error: err.message });
+    }
+});
 app.get('/dashboard/patients-stats', async (req, res) => {
   try {
     const pool = await poolPromise();
@@ -127,78 +340,7 @@ app.post('/api/login', async (req, res) => {
     }   
 });
 
-app.get('/api/registeredPatients', async ( req, res )  => {
-    try {
-        const pool = await poolPromise();
-        const request = pool.request();
-        const query = `
-        
-	WITH RankedAppointments AS (
-    SELECT 
-        r.userId,
-        r.patientId AS reg_patientId,
-        r.firstName,
-        r.lastName,
-        r.dob,
-        r.sex,
-        r.mobile,
-        r.email,
-        r.addressLine1,
-        r.addressLine2,
-        r.state,
-        r.city,
-        r.pincode,
-        r.height,
-        r.weight,
-        r.age,
-        r.activeFlag AS patientActiveFlag,      --  alias added
 
-        a.id AS appointmentId,
-        a.patientId AS app_patientId,
-        a.doctor,
-        a.date,
-        a.time,
-        a.bloodPressure,
-        a.pulse,
-        a.respiratoryRate,
-        a.stressLevel,
-        a.createDate,
-        a.updateDate,
-        a.activeFlag AS appointmentActiveFlag,  --  alias added
-
-        ROW_NUMBER() OVER (
-            PARTITION BY a.patientId 
-            ORDER BY a.createDate DESC
-        ) AS rn
-    FROM 
-        Register_Patient AS r
-    JOIN 
-        Appointment AS a 
-    ON 
-        a.patientId = r.patientId
-    WHERE 
-        r.activeFlag = 1 
-)
-SELECT *
-FROM RankedAppointments
-WHERE rn = 1;
-
-        `;
-        const result = await request.query(query);
-        console.log("result", result);
-
-        const users = result.recordset;
-
-        res.status(200).json({
-            data: users,
-            message: "Registered Patients are fetched successfully"
-        });
-        
-    } catch(error) {
-        console.log("error",error);
-        res.status(500).json({message: "Internal server Error"});
-    }
-});
 
 
 app.post('/api/appointment', async (req, res) => {
@@ -209,12 +351,15 @@ app.post('/api/appointment', async (req, res) => {
     
     // Extract patient details from the nested object
     const { regId: patientId } = patient;
-    
- let pulseAsString = String(pulse);
-    let respiratoryRateAsString = String(respiratoryRate);
-    let stressLevelAsString = String(stressLevel);
-    let bloodPressureAsString = String(bloodPressure);
-    
+const safeValue = (val) => (val === undefined || val === "" ? null : val);
+
+// let pulseAsString = safeValue(pulse);
+// let respiratoryRateAsString = safeValue(respiratoryRate);
+let stressLevelAsString = safeValue(stressLevel);
+let bloodPressureAsString = safeValue(bloodPressure);
+
+     const pulseAsString = pulse ? String(pulse) : null;
+    const respiratoryRateAsString = respiratoryRate ? String(respiratoryRate) : null; 
     // Get current timestamps
     const createDate = new Date().toISOString();
     const updateDate = new Date().toISOString();
@@ -229,10 +374,10 @@ app.post('/api/appointment', async (req, res) => {
             .input('doctor', sql.NVarChar, doctor)
             .input('date', sql.DateTime, date)
             .input('time', sql.NVarChar, time)
-            .input('bloodPressure', sql.NVarChar, bloodPressureAsString)
+            .input('bloodPressure', sql.NVarChar, bloodPressure)
             .input('pulse', sql.NVarChar, pulseAsString)
             .input('respiratoryRate', sql.NVarChar, respiratoryRateAsString)
-            .input('stressLevel', sql.NVarChar, stressLevelAsString)
+            .input('stressLevel', sql.NVarChar, stressLevel)
             .input('createDate', sql.DateTime, createDate)
             .input('updateDate', sql.DateTime, updateDate)
             .input('activeFlag', sql.Int, activeFlag)
@@ -285,71 +430,10 @@ app.post('/api/appointment', async (req, res) => {
 
 //New patient registration form - POST
 
-app.post('/api/newPatientRegistration', async (req, res) => {
-    console.log("req.body",req.body);
-    
-    const { regId, firstName, lastName, age, sex, dob, city, email, height, weight, mobile, pincode, state, address1, address2 } = req.body;        
-    try {
 
-
-        if(!firstName  || !lastName || !dob || !sex || !mobile || !height || !weight){
-            return res.status(400).json({ message: "All required fields are needed."});
-        }
-        const pool = await poolPromise();
-        const request = pool.request();
-        const query = `
-        	INSERT INTO Register_Patient(patientId, firstName, lastName, dob, sex, mobile, email, addressLine1, addressLine2, state, city, pincode, height, weight, age)
-	        VALUES( @patientId, @firstName, @lastName, @dob, @sex, @mobile, @email, @addressLine1, @addressLine2, @state, @city, @pincode, @height, @weight, @age);
-        `;
-        request.input("patientId", regId)
-        request.input("firstName",firstName);
-        request.input("lastName",lastName);
-        request.input("age",age);
-        request.input("sex",sex);
-        request.input("dob",dob);
-        request.input("city",city);
-        request.input("email",email);
-        request.input("height",height);
-        request.input("weight",weight);
-        request.input("mobile",mobile);
-        request.input("pincode",pincode);
-        request.input("state",state);
-        request.input("addressLine1",address1);
-        request.input("addressLine2",address2);     
-        
-        request.query(query);
-        return res.status(200).json({
-            message: "New patient registered successfully."
-        });
-        
-    } 
-
-    catch(err) {
-        console.log("error", err);
-        res.status(500).json({ message: "Internal server error"});
-    }
-});
 
 //Registered patient count
-app.get('/api/registeredPatientCount',async (req, res) => {
-    try {        
-        const pool = await poolPromise();
-        const request = pool.request();
-        const query = `SELECT COUNT(*) FROM Register_Patient;`;
-        const result = await request.query(query);
-        console.log("result", result);
-        const count = result.recordset[0][''];
-        
-        return res.status(200).json({
-            message: "Total count of Registered patient.",
-            count: count
-        });
-        
-    } catch(err) {
-        console.log("error",err);
-        res.status(500).json({ message: "Internal server error"});
-    }
-});
+
 
 app.get('/api/selectedPatient/:id', async (req, res) => {
     const {id} = req.params;
@@ -420,13 +504,14 @@ app.get('/api/patientList', async (req, res) => {
     request.input('filterDate', sql.Date, filterDate);
 
     const query = `
-      SELECT a.patientId, r.firstName, r.lastName, r.mobile, r.age, doctor,
-             a.createDate, a.bloodPressure, a.pulse, a.respiratoryRate
+      SELECT a.id as appointmentId,a.date,a.time as times,a.patientId, r.firstName, r.lastName, r.mobile, r.age, doctor,r.sex,r.email,r.addressLine1,
+             a.createDate, a.bloodPressure, a.pulse, a.respiratoryRate,a.stressLevel,r.height,r.weight
       FROM Appointment AS a
       JOIN Register_Patient AS r
         ON a.patientId = r.patientId
       WHERE a.activeFlag = 1
-        AND CAST(a.createDate AS DATE) = @filterDate
+        AND CAST(a.date AS DATE) = @filterDate
+        ORDER BY a.createDate DESC
     `;
 
     const result = await request.query(query);
@@ -443,7 +528,7 @@ app.get('/api/patientList', async (req, res) => {
 });
 
 // DELETE appointment
-app.delete('/api/deleteAppointment:id', async (req, res) => {
+app.delete('/api/deleteAppointment/:id', async (req, res) => {
     const {id} = req.params;  
     console.log("id", id);
       
