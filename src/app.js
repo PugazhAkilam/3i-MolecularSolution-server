@@ -377,6 +377,58 @@ app.get('/api/selectedPatient/:id', async (req, res) => {
     }
 });
 
+app.get('/api/patientDetails/:id', async (req, res) => {
+    const {id} = req.params;
+    try {
+        const pool = await poolPromise();
+        const request = pool.request();
+        const query = `
+            SELECT * FROM Register_Patient 
+            WHERE patientId = @id;
+        `;
+        request.input("id", id);
+        const result = await request.query(query);
+        const user = result.recordset;
+        return res.status(200).json(
+            {
+                message: "Details fetched from DB",
+                data: user
+            }
+        );        
+    } catch(err) {
+        console.log("error", err);      
+        res.status(500).json({ message: "Internal server error."});
+    }
+});
+
+app.get('/api/appointmentDetails/:id', async (req, res) => {
+    const {id} = req.params;
+    try {
+        const pool = await poolPromise();
+        const request = pool.request();
+        const query = `
+           SELECT * FROM Appointment
+WHERE patientId = @id
+ORDER BY createDate DESC;
+        `;
+        request.input("id", id);
+        const result = await request.query(query);
+        const user = result.recordset[0];
+        console.log(result.recordset[0]);
+        
+        return res.status(200).json(
+            {
+                message: "Details fetched from DB",
+                data: user
+            }
+        );        
+    } catch(err) {
+        console.log("error", err);      
+        res.status(500).json({ message: "Internal server error."});
+    }
+});
+
+
 
 //patient list - appointmnet
 // app.get('/api/patientList', async (req, res) => {
@@ -483,6 +535,50 @@ app.delete('/api/deletePatient:id', async (req, res) => {
         res.status(200).json({ message: "Patient deleted successfully" })
     } catch(err) {
         console.log("error", err);
+        res.status(500).json({ message: "Internal server error"});
+    }
+});
+
+app.put('/api/editAppointment/:id', async (req, res) => {
+    const {id} = req.params;
+    const {doctor, date, time, bloodPressureAsString, pulseAsString,respiratoryRateAsString,stressLevelAsString} = req.body;
+    console.log("1");
+    
+    try {
+        const pool = await poolPromise();
+        const request = pool.request();
+        const query = `
+           UPDATE Appointment
+  SET doctor = @doctor,
+	date = @date,
+	time = @time,
+	bloodPressure = @bloodPressure,
+    pulse = @pulse,
+    respiratoryRate = @respiratoryRate,
+    stressLevel = @stressLevel,
+    createDate = getDate(),
+    updateDate = getDate()
+    WHERE patientId = @id;
+    ;
+           `;
+           request.input('id', id)
+            request.input('doctor', sql.NVarChar, doctor)
+            request.input('date', sql.DateTime, date)
+            request.input('time', sql.NVarChar, time)
+            request.input('bloodPressure', sql.NVarChar, bloodPressureAsString)
+            request.input('pulse', sql.NVarChar, pulseAsString)
+            request.input('respiratoryRate', sql.NVarChar, respiratoryRateAsString)
+            request.input('stressLevel', sql.NVarChar, stressLevelAsString)
+           
+        const result =  await request.query(query);
+        console.log("result", result);
+        
+        res.status(200).json({ message: "Appointment updated successfully"
+         })
+
+    }
+    catch(err) {
+        console.log("/api/editAppointment/id", err);
         res.status(500).json({ message: "Internal server error"});
     }
 });
