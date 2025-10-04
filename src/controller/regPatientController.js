@@ -194,7 +194,7 @@ const getMedHistoryById = async (req, res) => {
             .input('patientId', sql.NVarChar(), patientId)
             .query(`
                 SELECT ChiefComplaint, SummaryNote, PreExisting, Allergy
-                FROM Register_Patient
+                FROM Appointment
                 WHERE PatientId = @patientId;
             `);
 
@@ -294,6 +294,9 @@ const createConsultation = async (req, res) => {
         prescriptions
     } = req.body;
    console.log("req.body", req.body);
+
+   console.log("11111111");
+   
    
     if (!patientId || !appointmentId) {
         return res.status(400).json({ message: 'Patient ID and Appointment ID are required.' });
@@ -309,7 +312,7 @@ const createConsultation = async (req, res) => {
 
         // 1. Update the Patient's table with consultation notes
         const patientUpdateQuery = `
-            UPDATE Register_Patient
+            UPDATE Appointment
             SET ChiefComplaint = @chiefComplaint,
                 SummaryNote = @summaryNote,
                 PreExisting = @preExistingProblems,
