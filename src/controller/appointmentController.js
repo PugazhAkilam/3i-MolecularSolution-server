@@ -211,6 +211,59 @@ const getVisitDetails =  async (req, res) => {
     }
 }
 
+const getVisitDetails2 = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const pool = await poolPromise();
+    const request = pool.request();
+    request.input("id", id);
+
+    const query = `
+      SELECT 
+        a.id AS AppointmentId,
+        a.patientId,
+        a.date,
+        a.doctor,
+        a.ChiefComplaint,
+	    a.SummaryNote,
+	    a.PreExisting,
+	    a.Allergy,
+	    a.updateDate,
+	    a.bloodPressure,
+	    a.pulse,
+	    a.respiratoryRate,
+	    a.stressLevel,
+        (
+            SELECT *
+            FROM Prescription p
+            WHERE p.AppointmentId = a.id
+            FOR JSON AUTO
+        ) AS Prescription
+      FROM Appointment a
+      WHERE a.patientId = @id;
+    `;
+
+    const result = await request.query(query);
+
+    // Parse the PrescriptionJson for each record
+    const data = result.recordset.map(record => ({
+      ...record,
+      Prescription: JSON.parse(record.Prescription || '[]')
+    }));
+
+    res.status(200).json({
+      message: "Appointments with patient details fetched successfully.",
+      data
+    });
+
+  } catch (err) {
+    console.error("Error fetching data with patient details:", err);
+    res.status(500).json({ message: "Internal server error." });
+  }
+};
+
+
 const getAppointmentsData =  async (req, res) => {
     const {id} = req.params;
     try {
@@ -237,4 +290,4 @@ ORDER BY createDate DESC;
         res.status(500).json({ message: "Internal server error."});
     }
 }
-module.exports = { createAppointment, getTodayAppointments , removeAppointment, updateAppointment, getAppointmentsData, getVisitDetails}
+module.exports = { createAppointment, getTodayAppointments , getVisitDetails2, removeAppointment, updateAppointment, getAppointmentsData, getVisitDetails}
