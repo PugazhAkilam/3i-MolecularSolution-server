@@ -20,7 +20,6 @@ app.use('/api/appointment', appointment);
 // poolPromise()
 
 
-
 //     try{
 //     const pool = await poolPromise();
 //     const request = pool.request();
