@@ -8,7 +8,7 @@ const createAppointment = async (req, res) => {
     console.log(typeof pulse,typeof bloodPressure,typeof respiratoryRate,typeof stressLevel);
     
     // Extract patient details from the nested object
-    const { regId: patientId } = patient;
+    const { patientId: patientId } = patient;
 const safeValue = (val) => (val === undefined || val === "" ? null : val);
 
 // let pulseAsString = safeValue(pulse);
@@ -103,7 +103,7 @@ const removeAppointment = async (req, res) => {
         const query = `
          UPDATE Appointment
             SET activeFlag = 0
-            where patientId = @id;
+            where id = @id;
            `;
         request.input('id', id);
         await request.query(query);
@@ -290,4 +290,31 @@ ORDER BY createDate DESC;
         res.status(500).json({ message: "Internal server error."});
     }
 }
-module.exports = { createAppointment, getTodayAppointments , getVisitDetails2, removeAppointment, updateAppointment, getAppointmentsData, getVisitDetails}
+
+const getAppointment =  async (req, res) => {
+    const {id} = req.params;
+    try {
+        const pool = await poolPromise();
+        const request = pool.request();
+        const query = `
+           SELECT * FROM Appointment
+WHERE id = @id
+ORDER BY createDate DESC;
+        `;
+        request.input("id", id);
+        const result = await request.query(query);
+        const user = result.recordset[0];
+        console.log(result.recordset[0]);
+        
+        return res.status(200).json(
+            {
+                message: "Details fetched from DB",
+                data: user
+            }
+        );        
+    } catch(err) {
+        console.log("error", err);      
+        res.status(500).json({ message: "Internal server error."});
+    }
+}
+module.exports = { createAppointment, getTodayAppointments ,getAppointment, getVisitDetails2, removeAppointment, updateAppointment, getAppointmentsData, getVisitDetails}
