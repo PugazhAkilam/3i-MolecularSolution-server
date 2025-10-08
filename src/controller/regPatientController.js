@@ -15,7 +15,7 @@ const loginCheck = async (req, res) => {
         request.input("userName", sql.VarChar, userName);
 
         const query = `
-            SELECT userName, password FROM User_Master
+            SELECT id,userName, password FROM User_Master
             WHERE userName = @userName;
         `;
 
@@ -647,4 +647,30 @@ const pool = await poolPromise();
   }
 }
 
-module.exports = { loginCheck, updateMedHistory, deleteMedHistory, addNewMedicalHistory, getMedHistoryByIdByCategory, deletePatientById, getPatientDetailsById, getPatientList,fetchRegisteredPatient, getSelectedPatient, selectPatientStats, deletePatientId,createNewPatient, patientDetailsById, getNextPatientById, getMedHistoryById, updatePatientById, createConsultation}
+const getProfileDetail = async (req, res) => {
+    const { id } = req.params;
+    try {        
+        const pool = await poolPromise();
+        const request = pool.request();
+        const query = `            
+        SELECT userName,userType,name,email,createDate 
+        FROM User_Master
+        WHERE id = @id; 
+        `;
+        request.input("id", id);
+        const result = await request.query(query);
+        console.log("result", result);                              
+        const user = result.recordset;
+
+        res.status(200).json({   
+            data: user,
+            message: "Profile Details fetched successfully."                                   
+        });
+        
+    } catch(error) {
+        console.log("error",error);
+        res.status(500).json({message: "Internal server Error"});
+    }                                                                                                                                                                                                   
+}   
+
+module.exports = { loginCheck, updateMedHistory, deleteMedHistory, addNewMedicalHistory, getMedHistoryByIdByCategory, getProfileDetail, deletePatientById, getPatientDetailsById, getPatientList,fetchRegisteredPatient, getSelectedPatient, selectPatientStats, deletePatientId,createNewPatient, patientDetailsById, getNextPatientById, getMedHistoryById, updatePatientById, createConsultation}
