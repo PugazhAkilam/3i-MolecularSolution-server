@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { loginCheck,getProfileDetail, addNewMedicalHistory, deleteMedHistory, updateMedHistory, getMedHistoryByIdByCategory, getPatientDetailsById ,fetchRegisteredPatient, getPatientList, getSelectedPatient, selectPatientStats, deletePatientId,deletePatientById, patientDetailsById, getMedHistoryById, updatePatientById, createConsultation, createNewPatient, getNextPatientById } = require('../controller/regPatientController');
+const { addNewMedicalHistory, deleteMedHistory, updateMedHistory, getMedHistoryByIdByCategory, getPatientDetailsById ,fetchRegisteredPatient, getPatientList, getSelectedPatient, selectPatientStats, deletePatientId,deletePatientById, patientDetailsById, getMedHistoryById, updatePatientById, createConsultation, createNewPatient, getNextPatientById } = require('../controller/regPatientController');
 
-router.post('/login', loginCheck );
+
 
 router.post('/saveConsultation', createConsultation);
 
@@ -45,6 +45,6 @@ router.put('/medicalHistory/:id', updateMedHistory);
 router.delete('/medicalHistory/:id', deleteMedHistory);
 // ... (existing routes like newPatientRegistration, getNextPatientId, etc.)
 
-router.get('/profileDetail/:id', getProfileDetail);
+
 
 module.exports = router;

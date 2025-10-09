@@ -1,49 +1,6 @@
 const { poolPromise, sql } = require('../config/db'); 
 
-const loginCheck = async (req, res) => {
-    const { userName, password } = req.body;
-    console.log("userName", userName);
 
-    try {
-        const pool = await poolPromise();
-        const request = pool.request();
-
-        if( !userName || !password) {
-            return res.status(400).json({ message: "Please fill all required fields. "})
-        }
-
-        request.input("userName", sql.VarChar, userName);
-
-        const query = `
-            SELECT id,userName, password FROM User_Master
-            WHERE userName = @userName;
-        `;
-
-        const result = await request.query(query);
-        console.log("checkUserResult:", result);
-
-        if (result.recordset.length === 0) {
-            return res.status(400).json({ message: "User not found" });
-        }
-
-        const user = result.recordset[0];
-
-        // For now, just compare raw passwords
-        // TODO: Use bcrypt to hash and compare passwords securely
-        if (user.password !== password) {
-            return res.status(401).json({ message: "Invalid password" });
-        }
-
-        return res.status(200).json({
-            data: user,
-            message: "Login successful"
-        });
-
-    } catch (error) {
-        console.error("Login error:", error);
-        res.status(500).json({ message: "Internal server error" });
-    }   
-}
 
 const getPatientList = async (req, res) => {
   try {
@@ -647,30 +604,6 @@ const pool = await poolPromise();
   }
 }
 
-const getProfileDetail = async (req, res) => {
-    const { id } = req.params;
-    try {        
-        const pool = await poolPromise();
-        const request = pool.request();
-        const query = `            
-        SELECT userName,userType,name,email,createDate 
-        FROM User_Master
-        WHERE id = @id; 
-        `;
-        request.input("id", id);
-        const result = await request.query(query);
-        console.log("result", result);                              
-        const user = result.recordset;
+   
 
-        res.status(200).json({   
-            data: user,
-            message: "Profile Details fetched successfully."                                   
-        });
-        
-    } catch(error) {
-        console.log("error",error);
-        res.status(500).json({message: "Internal server Error"});
-    }                                                                                                                                                                                                   
-}   
-
-module.exports = { loginCheck, updateMedHistory, deleteMedHistory, addNewMedicalHistory, getMedHistoryByIdByCategory, getProfileDetail, deletePatientById, getPatientDetailsById, getPatientList,fetchRegisteredPatient, getSelectedPatient, selectPatientStats, deletePatientId,createNewPatient, patientDetailsById, getNextPatientById, getMedHistoryById, updatePatientById, createConsultation}
+module.exports = {  updateMedHistory, deleteMedHistory, addNewMedicalHistory, getMedHistoryByIdByCategory, deletePatientById, getPatientDetailsById, getPatientList,fetchRegisteredPatient, getSelectedPatient, selectPatientStats, deletePatientId,createNewPatient, patientDetailsById, getNextPatientById, getMedHistoryById, updatePatientById, createConsultation}
